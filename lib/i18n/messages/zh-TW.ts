@@ -388,6 +388,7 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.renameProject": "重新命名…",
     "sidebar.resetProjectName": "恢復預設名稱",
     "sidebar.projectName": "專案名稱",
+    "sidebar.sortProjectsByActivity": "依最近活動排序",
     "sidebar.moveProjectUp": "上移",
     "sidebar.moveProjectDown": "下移",
     "sidebar.archive": "封存",

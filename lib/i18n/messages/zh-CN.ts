@@ -388,6 +388,7 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.renameProject": "重命名…",
     "sidebar.resetProjectName": "恢复默认名称",
     "sidebar.projectName": "项目名称",
+    "sidebar.sortProjectsByActivity": "按最近活动排序",
     "sidebar.moveProjectUp": "上移",
     "sidebar.moveProjectDown": "下移",
     "sidebar.archive": "归档",

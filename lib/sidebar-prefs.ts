@@ -19,6 +19,7 @@ const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups-v2";
 const LEGACY_GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const ARCHIVE_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-archive-collapsed";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
+const PROJECT_SORT_ACTIVITY_STORAGE_KEY = "pi-web:sidebar-projects-by-activity";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 const FILES_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-files-collapsed";
 const NON_GIT_CWDS_STORAGE_KEY = "pi-web:sidebar-non-git-cwds";
@@ -176,6 +177,32 @@ export function savePinnedCollapsed(
   if (!storage) return;
   try {
     storage.setItem(PINNED_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/**
+ * Whether the project groups follow their newest session instead of the
+ * stored order; off unless the browser saved it on. A view choice, like the
+ * folds: the shared `projectOrder` stays as it is while it is on.
+ */
+export function loadProjectSortByActivity(storage: StorageLike | null = getBrowserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(PROJECT_SORT_ACTIVITY_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveProjectSortByActivity(
+  byActivity: boolean,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(PROJECT_SORT_ACTIVITY_STORAGE_KEY, String(byActivity));
   } catch {
     // Persistence is best-effort.
   }

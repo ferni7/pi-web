@@ -35,6 +35,7 @@ import {
   loadGroupExpansion,
   loadNonGitCwds,
   loadPinnedCollapsed,
+  loadProjectSortByActivity,
   loadShowIgnoredFiles,
   loadSidebarTab,
   rememberCwdGitStatus,
@@ -42,6 +43,7 @@ import {
   saveFilesCollapsed,
   saveGroupExpansion,
   savePinnedCollapsed,
+  saveProjectSortByActivity,
   saveShowIgnoredFiles,
   saveSidebarTab,
   type SidebarTab,
@@ -583,6 +585,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [keptOpenGroups, setKeptOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [moreShown, setMoreShown] = useState<Readonly<Record<string, number>>>({});
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
+  // Groups by their newest session instead of the stored order, per browser
+  // (lib/sidebar-prefs.ts). On, no group is placed by hand: dragging and
+  // Move up/down are off and the stored order is left alone.
+  const [sortProjectsByActivity, setSortProjectsByActivity] = useState(false);
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
   const [archiveView, setArchiveViewState] = useState(false);
@@ -737,6 +743,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const groups = loadGroupExpansion();
     if (Object.keys(groups).length > 0) setGroupExpansion(groups);
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
+    if (loadProjectSortByActivity()) setSortProjectsByActivity(true);
     const archiveFolds = loadArchiveCollapsed();
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
@@ -1427,7 +1434,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed]);
+    sortProjectsByActivity,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, sortProjectsByActivity]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -2252,6 +2260,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setMoreShown((prev) => showLessFamilies(prev, key));
   }, []);
 
+  const handleToggleSortByActivity = () => {
+    const next = !sortProjectsByActivity;
+    setSortProjectsByActivity(next);
+    saveProjectSortByActivity(next);
+  };
+
   const handleTogglePinned = () => {
     const next = !pinnedCollapsed;
     setPinnedCollapsed(next);
@@ -2366,10 +2380,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       { type: "separator", id: "separator-layout" },
       {
         type: "item",
+        id: "sort-by-activity",
+        label: t("sidebar.sortProjectsByActivity"),
+        checked: sortProjectsByActivity,
+        onSelect: handleToggleSortByActivity,
+      },
+      // By activity the projects place themselves: a move would not hold.
+      {
+        type: "item",
         id: "move-up",
         label: t("sidebar.moveProjectUp"),
         icon: <ChevronIcon className="sidebar-icon-up" />,
-        disabled: up === null,
+        disabled: sortProjectsByActivity || up === null,
         onSelect: () => { if (up) moveProject(project.key, up.anchorKey, up.position); },
       },
       {
@@ -2377,7 +2399,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         id: "move-down",
         label: t("sidebar.moveProjectDown"),
         icon: <ChevronIcon className="sidebar-icon-down" />,
-        disabled: down === null,
+        disabled: sortProjectsByActivity || down === null,
         onSelect: () => { if (down) moveProject(project.key, down.anchorKey, down.position); },
       },
       {
@@ -2642,7 +2664,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onOpenOtherProject: handleOpenOtherProject,
     onOpenArchive: () => openArchiveView(),
     // The archive view has no group rows: only the main tree's can be dragged.
-    onMoveGroup: moveProject,
+    // Sorted by activity, none of them can: the order is not the user's to set.
+    onMoveGroup: sortProjectsByActivity ? undefined : moveProject,
   } as const;
 
   const explorerCwd = selectedCwd ?? selectedCwdProp ?? null;

@@ -14,7 +14,9 @@
  *
  * Groups keep the stored project order (`projectOrder`): activity never moves
  * a project that has a place in it. Pinned projects come first, then the
- * rest; in each band the projects without a place come first.
+ * rest; in each band the projects without a place come first. With
+ * `sortProjectsByActivity` the stored order steps aside and each band runs
+ * newest session first.
  */
 
 import { listSessionFamilies, type SessionFamily } from "./session-family";
@@ -84,6 +86,12 @@ export interface SessionTreeInput {
   /** Families revealed beyond the base limit by "show more", per projectKey or PINNED_MORE_KEY. */
   moreShown: Readonly<Record<string, number>>;
   pinnedCollapsed: boolean;
+  /**
+   * Order the groups by their newest session instead of the stored order
+   * (the browser's own choice, lib/sidebar-prefs.ts). Pinned projects still
+   * come first; within each band the project of the newest session is on top.
+   */
+  sortProjectsByActivity?: boolean;
 }
 
 export interface SessionTreeModel {
@@ -403,6 +411,7 @@ function moreRowState(total: number, visible: number, revealed: number): { hidde
 
 export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const { uiState, runningIds, currentProject } = input;
+  const sortByActivity = input.sortProjectsByActivity === true;
   const families = listSessionFamilies(input.sessions);
   const resolver = createProjectResolver(uiState, currentProject);
 
@@ -478,20 +487,25 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     if (!rank.has(key)) rank.set(key, index);
   });
   const recordable = (project: SidebarProject) => project.pinned || savedKeys.has(project.key);
+  const activityOf = (project: SidebarProject) => projectActivity.get(project.key)
+    ?? (project.current ? Infinity : -Infinity);
   // Projects without a place come first, in the fallback order, the ones that
   // are not saved on their own (transient only, the empty current project)
   // before the others: saving those then changes nothing on screen.
+  // Sorted by activity, the stored order is ignored altogether: every project
+  // of the band takes its newest family's time, newest first.
   type Indexed = { project: SidebarProject; index: number };
-  const orderBand = (band: Indexed[], fallback: (a: Indexed, b: Indexed) => number): SidebarProject[] => [
-    ...band
-      .filter(({ project }) => !rank.has(project.key))
-      .sort((a, b) => Number(recordable(a.project)) - Number(recordable(b.project)) || fallback(a, b)),
-    ...band
-      .filter(({ project }) => rank.has(project.key))
-      .sort((a, b) => (rank.get(a.project.key) ?? 0) - (rank.get(b.project.key) ?? 0)),
-  ].map(({ project }) => project);
-  const activityOf = (project: SidebarProject) => projectActivity.get(project.key)
-    ?? (project.current ? Infinity : -Infinity);
+  const byActivity = (a: Indexed, b: Indexed) => compareDesc(activityOf(a.project), activityOf(b.project)) || a.index - b.index;
+  const orderBand = (band: Indexed[], fallback: (a: Indexed, b: Indexed) => number): SidebarProject[] => (sortByActivity
+    ? [...band].sort(byActivity)
+    : [
+      ...band
+        .filter(({ project }) => !rank.has(project.key))
+        .sort((a, b) => Number(recordable(a.project)) - Number(recordable(b.project)) || fallback(a, b)),
+      ...band
+        .filter(({ project }) => rank.has(project.key))
+        .sort((a, b) => (rank.get(a.project.key) ?? 0) - (rank.get(b.project.key) ?? 0)),
+    ]).map(({ project }) => project);
   const projectPinnedAt = (project: SidebarProject) => finiteNumber(uiState.projects[project.key]?.pinnedAt) ?? 0;
   const indexed = projects.map((project, index) => ({ project, index }));
   const pinnedProjects = orderBand(
@@ -500,12 +514,16 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   );
   const otherProjects = orderBand(
     indexed.filter(({ project }) => !project.pinned),
-    (a, b) => compareDesc(activityOf(a.project), activityOf(b.project)) || a.index - b.index,
+    byActivity,
   );
   const orderedProjects = [...pinnedProjects, ...otherProjects];
-  const unorderedKeys = (band: SidebarProject[]) => band.filter((project) => !rank.has(project.key)).map((project) => project.key);
+  // Sorted by activity, nothing is placed by hand and nothing is recorded:
+  // the stored order waits untouched for the sort to go back off.
+  const unorderedKeys = (band: SidebarProject[]) => (sortByActivity
+    ? []
+    : band.filter((project) => !rank.has(project.key)).map((project) => project.key));
   const unorderedKeysByBand = { pinned: unorderedKeys(pinnedProjects), other: unorderedKeys(otherProjects) };
-  const projectKeysToRecord = orderedProjects
+  const projectKeysToRecord = sortByActivity ? [] : orderedProjects
     .filter((project) => !rank.has(project.key) && recordable(project))
     .map((project) => project.key);
 
