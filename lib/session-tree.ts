@@ -14,9 +14,10 @@
  *
  * Groups keep the stored project order (`projectOrder`): activity never moves
  * a project that has a place in it. Pinned projects come first, then the
- * rest; in each band the projects without a place come first. With
- * `sortProjectsByActivity` the stored order steps aside and each band runs
- * newest session first.
+ * rest; in each band the projects without a place come first. The `order`
+ * input steps over all of that: "projects" runs each band newest session
+ * first, "sessions" drops the groups for one flat list of every session,
+ * newest first, each row naming its project.
  */
 
 import { listSessionFamilies, type SessionFamily } from "./session-family";
@@ -25,6 +26,13 @@ import type { SessionInfo } from "./types";
 import { workspaceKeyOf } from "./workspace-memory";
 
 export type SidebarLayout = "desktop" | "mobile";
+/**
+ * How the tree is ordered, the browser's own choice (lib/sidebar-prefs.ts):
+ * the stored project order, the same groups by their newest session, or no
+ * groups at all — every session in one list, newest first, each row naming
+ * its project below its title.
+ */
+export type SidebarOrder = "manual" | "projects" | "sessions";
 export type SidebarRowKind =
   | "pinned-header" | "session" | "pinned-more" | "group" | "group-more" | "group-empty"
   | "spacer" | "footer-open" | "footer-archived" | "archive-group";
@@ -41,6 +49,11 @@ export const SIDEBAR_ROW_HEIGHTS: Record<SidebarLayout, Record<SidebarRowKind, n
   desktop: { "pinned-header": 28, session: 28, "pinned-more": 26, group: 28, "group-more": 26, "group-empty": 28, spacer: 8, "footer-open": 28, "footer-archived": 28, "archive-group": 28 },
   mobile: { "pinned-header": 44, session: 44, "pinned-more": 36, group: 44, "group-more": 36, "group-empty": 44, spacer: 8, "footer-open": 44, "footer-archived": 44, "archive-group": 44 },
 };
+/**
+ * A session row of the flat list ("sessions" order) carries its project
+ * below its title, so it takes two lines where every other row takes one.
+ */
+export const SIDEBAR_FLAT_SESSION_HEIGHTS: Record<SidebarLayout, number> = { desktop: 42, mobile: 58 };
 export const GROUP_VISIBLE_LIMIT = 6;
 export const PINNED_VISIBLE_LIMIT = 8;
 /** How many more families each "show more" click reveals. */
@@ -53,11 +66,13 @@ export const PINNED_MORE_KEY = "pinned";
  * (`customName`, from its group menu's Rename…), else its folder's name.
  */
 export interface SidebarProject { key: string; root: string; name: string; customName: string | null; pinned: boolean; current: boolean }
+/** Where a session row stands: the pinned section, a project group, the flat list, the archive. */
+export type SidebarSessionContext = "pinned" | "group" | "flat" | "archive";
 export interface SidebarFamilyStatus { running: boolean; awaiting: boolean; unread: boolean; selected: boolean; transient: boolean }
 
 export type SidebarRow =
   | { kind: "pinned-header"; key: "pinned-header"; count: number; collapsed: boolean; running: number; unread: number }
-  | { kind: "session"; key: string; family: SessionFamily; context: "pinned" | "group" | "archive"; project: SidebarProject; status: SidebarFamilyStatus; archivedAt: number | null }
+  | { kind: "session"; key: string; family: SessionFamily; context: SidebarSessionContext; project: SidebarProject; status: SidebarFamilyStatus; archivedAt: number | null }
   | { kind: "pinned-more"; key: "pinned-more"; hidden: number; canShowLess: boolean; nextShown: number }
   | { kind: "group"; key: string; project: SidebarProject; expanded: boolean; running: number; unread: number }
   | { kind: "group-more"; key: string; projectKey: string; hidden: number; canShowLess: boolean; nextShown: number }
@@ -87,11 +102,13 @@ export interface SessionTreeInput {
   moreShown: Readonly<Record<string, number>>;
   pinnedCollapsed: boolean;
   /**
-   * Order the groups by their newest session instead of the stored order
-   * (the browser's own choice, lib/sidebar-prefs.ts). Pinned projects still
-   * come first; within each band the project of the newest session is on top.
+   * How the tree is ordered; "manual" (the stored project order) by default.
+   * "projects" keeps the groups and orders each band by its newest session.
+   * "sessions" drops the groups: one list of every live session, newest
+   * first, each row naming its project. The pinned section is unchanged by
+   * either, and neither writes `projectOrder`.
    */
-  sortProjectsByActivity?: boolean;
+  order?: SidebarOrder;
 }
 
 export interface SessionTreeModel {
@@ -304,7 +321,7 @@ function createProjectResolver(
 
 function sessionRow(
   family: SessionFamily,
-  context: "pinned" | "group" | "archive",
+  context: SidebarSessionContext,
   project: SidebarProject,
   input: FamilyFlagsInput,
   archivedAt: number | null,
@@ -411,7 +428,9 @@ function moreRowState(total: number, visible: number, revealed: number): { hidde
 
 export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   const { uiState, runningIds, currentProject } = input;
-  const sortByActivity = input.sortProjectsByActivity === true;
+  const order = input.order ?? "manual";
+  const flat = order === "sessions";
+  const sortByActivity = order !== "manual";
   const families = listSessionFamilies(input.sessions);
   const resolver = createProjectResolver(uiState, currentProject);
 
@@ -527,7 +546,20 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
     .filter((project) => !rank.has(project.key) && recordable(project))
     .map((project) => project.key);
 
-  for (const project of orderedProjects) {
+  // One list, no headers: every live non-pinned family, newest first, each
+  // row under its own project's name. Whole: a project's 6-row window and
+  // its "show more" are a group's, and the list is virtualized anyway.
+  const flatFamilies = flat
+    ? [...projectFamilies.values()].flat()
+      .map((family, index) => ({ family, index }))
+      .sort((a, b) => compareDesc(timeOf(a.family.latestModified), timeOf(b.family.latestModified)) || a.index - b.index)
+      .map(({ family }) => family)
+    : [];
+  for (const family of flatFamilies) {
+    rows.push(sessionRow(family, "flat", resolver.get(familyProjectKey(family)), input, null));
+  }
+
+  for (const project of flat ? [] : orderedProjects) {
     const groupFamilies = projectFamilies.get(project.key) ?? [];
     const expanded = isGroupExpanded(project, input.groupExpansion);
     let running = 0;
@@ -553,7 +585,7 @@ export function buildSessionTree(input: SessionTreeInput): SessionTreeModel {
   // Groups sit right on each other, open or folded: a gap between two of
   // them would only push the next header away. One spacer parts them from
   // the footer, as one parts the pinned section from them.
-  if (orderedProjects.length > 0) rows.push({ kind: "spacer", key: "footer-spacer" });
+  if ((flat ? flatFamilies.length : orderedProjects.length) > 0) rows.push({ kind: "spacer", key: "footer-spacer" });
   rows.push({ kind: "footer-open", key: "footer-open" });
   if (archivedCount > 0) rows.push({ kind: "footer-archived", key: "footer-archived", count: archivedCount });
 
@@ -695,13 +727,18 @@ export function familiesToDelete(
   return { ids, running };
 }
 
+/** A row's height: its kind's, two lines for a flat list's session row. */
+export function rowHeight(row: SidebarRow, layout: SidebarLayout): number {
+  if (row.kind === "session" && row.context === "flat") return SIDEBAR_FLAT_SESSION_HEIGHTS[layout];
+  return SIDEBAR_ROW_HEIGHTS[layout][row.kind];
+}
+
 /** Prefix sums of row heights: length rows.length + 1, offsets[0] = 0. */
 export function getRowOffsets(rows: readonly SidebarRow[], layout: SidebarLayout): number[] {
-  const heights = SIDEBAR_ROW_HEIGHTS[layout];
   const offsets = new Array<number>(rows.length + 1);
   offsets[0] = 0;
   for (let index = 0; index < rows.length; index++) {
-    offsets[index + 1] = offsets[index] + heights[rows[index].kind];
+    offsets[index + 1] = offsets[index] + rowHeight(rows[index], layout);
   }
   return offsets;
 }

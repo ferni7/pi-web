@@ -188,6 +188,16 @@ export function TerminalIcon(props: SidebarIconProps) {
   );
 }
 
+/** Three lines, longest first, with a down arrow: the tree's order. */
+export function SortIcon(props: SidebarIconProps) {
+  return (
+    <SidebarIcon {...props}>
+      <path d="M4 6h10M4 12h7M4 18h4" />
+      <path d="M17 10v9M14 16l3 3 3-3" />
+    </SidebarIcon>
+  );
+}
+
 export function SearchIcon(props: SidebarIconProps) {
   return (
     <SidebarIcon {...props}>

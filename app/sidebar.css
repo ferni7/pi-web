@@ -376,6 +376,45 @@ a.session-tree-main {
   vertical-align: bottom;
 }
 
+/* The flat list's two-line row: the title line as every other row has it
+   (title, branch, time), the project under it in the time's type. The main
+   control stacks the two instead of centring one, and the row's buttons
+   stay on the title's line, where the time is. */
+.session-tree-session.is-flat .session-tree-main {
+  align-items: stretch;
+}
+
+.session-tree-session.is-flat .session-tree-actions {
+  align-self: flex-start;
+  height: 24px;
+}
+
+.session-tree-lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  gap: 1px;
+}
+
+.session-tree-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The project the session is in: the time's type, dimmer than the title,
+   cut with an ellipsis; its tooltip is the project's path. */
+.session-tree-subtitle {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Always rendered, empty-looking while its buttons are hidden: a gap of its
    own would keep the time 2px off the edge. */
 .session-tree-actions {

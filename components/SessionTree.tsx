@@ -522,6 +522,7 @@ const SessionRowView = memo(function SessionRowView({
     status.selected ? "is-selected" : "",
     status.running ? "is-running" : "",
     context === "archive" ? "is-archived" : "",
+    context === "flat" ? "is-flat" : "",
     menuOpen ? "is-menu-open" : "",
     confirming ? "is-confirming" : "",
     renaming ? "is-renaming" : "",
@@ -612,23 +613,38 @@ const SessionRowView = memo(function SessionRowView({
   // family, which would come straight back.
   const quickAction = layout === "desktop" && (context === "archive" || !status.running);
 
-  const mainContent = (
+  const titleContent = forkTitle ? (
+    <span className="session-tree-title has-fork-suffix">
+      <span className="session-tree-title-base">{forkTitle.base}</span>
+      <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
+    </span>
+  ) : (
+    <span className="session-tree-title">{title}</span>
+  );
+  const branchContent = branch && (
+    <span className="session-tree-branch">
+      <BranchIcon size={10} className="session-tree-branch-icon" />
+      {branch}
+    </span>
+  );
+  const metaContent = <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>;
+  // The flat list has no group header to say which project a session is in,
+  // so the row says it, under the title: the same two columns as one line,
+  // with the project below the title and nothing below the time.
+  const mainContent = context === "flat" ? (
+    <span className="session-tree-lines">
+      <span className="session-tree-line">
+        {titleContent}
+        {branchContent}
+        {metaContent}
+      </span>
+      <span className="session-tree-subtitle" title={row.project.root}>{row.project.name}</span>
+    </span>
+  ) : (
     <>
-      {forkTitle ? (
-        <span className="session-tree-title has-fork-suffix">
-          <span className="session-tree-title-base">{forkTitle.base}</span>
-          <span className="session-tree-title-suffix">{forkTitle.suffix}</span>
-        </span>
-      ) : (
-        <span className="session-tree-title">{title}</span>
-      )}
-      {branch && (
-        <span className="session-tree-branch">
-          <BranchIcon size={10} className="session-tree-branch-icon" />
-          {branch}
-        </span>
-      )}
-      <span className={`session-tree-meta${metaState}`} title={metaTitle}>{meta}</span>
+      {titleContent}
+      {branchContent}
+      {metaContent}
     </>
   );
 

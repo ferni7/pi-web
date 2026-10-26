@@ -1,12 +1,15 @@
 /**
  * Per-browser sidebar preferences: the active tab (sessions or files), the
  * user's explicit project group expand/collapse choices, the archive view's
- * folded projects, whether the pinned section is collapsed, whether the files section below the sessions is
+ * folded projects, whether the pinned section is collapsed, how the tree is
+ * ordered, whether the files section below the sessions is
  * collapsed, whether the files tab or section lists ignored files, and the
  * folders the worktree listing last found outside git.
  * Best-effort localStorage, like the other sidebar memories: privacy mode or
  * quota errors fall back to defaults.
  */
+
+import type { SidebarOrder } from "./session-tree";
 
 const SIDEBAR_TAB_STORAGE_KEY = "pi-web:sidebar-tab";
 const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups-v2";
@@ -19,7 +22,9 @@ const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups-v2";
 const LEGACY_GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const ARCHIVE_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-archive-collapsed";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
-const PROJECT_SORT_ACTIVITY_STORAGE_KEY = "pi-web:sidebar-projects-by-activity";
+const ORDER_STORAGE_KEY = "pi-web:sidebar-order";
+/** The sort switch before the flat list, a boolean; "true" reads as "projects". */
+const LEGACY_PROJECT_SORT_STORAGE_KEY = "pi-web:sidebar-projects-by-activity";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
 const FILES_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-files-collapsed";
 const NON_GIT_CWDS_STORAGE_KEY = "pi-web:sidebar-non-git-cwds";
@@ -183,26 +188,30 @@ export function savePinnedCollapsed(
 }
 
 /**
- * Whether the project groups follow their newest session instead of the
- * stored order; off unless the browser saved it on. A view choice, like the
- * folds: the shared `projectOrder` stays as it is while it is on.
+ * How the tree is ordered: the stored project order ("manual", the
+ * default), the groups by their newest session ("projects"), or one flat
+ * list of every session ("sessions"). A view choice, like the folds: the
+ * shared `projectOrder` stays as it is under the other two. The sort
+ * switch that came before the flat list is read once, as "projects".
  */
-export function loadProjectSortByActivity(storage: StorageLike | null = getBrowserStorage()): boolean {
-  if (!storage) return false;
+export function loadSidebarOrder(storage: StorageLike | null = getBrowserStorage()): SidebarOrder {
+  if (!storage) return "manual";
   try {
-    return storage.getItem(PROJECT_SORT_ACTIVITY_STORAGE_KEY) === "true";
+    const saved = storage.getItem(ORDER_STORAGE_KEY);
+    if (saved === "projects" || saved === "sessions" || saved === "manual") return saved;
+    return storage.getItem(LEGACY_PROJECT_SORT_STORAGE_KEY) === "true" ? "projects" : "manual";
   } catch {
-    return false;
+    return "manual";
   }
 }
 
-export function saveProjectSortByActivity(
-  byActivity: boolean,
+export function saveSidebarOrder(
+  order: SidebarOrder,
   storage: StorageLike | null = getBrowserStorage(),
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(PROJECT_SORT_ACTIVITY_STORAGE_KEY, String(byActivity));
+    storage.setItem(ORDER_STORAGE_KEY, order);
   } catch {
     // Persistence is best-effort.
   }

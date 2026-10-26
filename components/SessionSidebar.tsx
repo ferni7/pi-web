@@ -25,6 +25,7 @@ import {
   PINNED_MORE_KEY,
   showLessFamilies,
   showMoreFamilies,
+  type SidebarOrder,
   type SidebarProject,
   type SidebarRow,
 } from "@/lib/session-tree";
@@ -35,16 +36,16 @@ import {
   loadGroupExpansion,
   loadNonGitCwds,
   loadPinnedCollapsed,
-  loadProjectSortByActivity,
   loadShowIgnoredFiles,
+  loadSidebarOrder,
   loadSidebarTab,
   rememberCwdGitStatus,
   saveArchiveCollapsed,
   saveFilesCollapsed,
   saveGroupExpansion,
   savePinnedCollapsed,
-  saveProjectSortByActivity,
   saveShowIgnoredFiles,
+  saveSidebarOrder,
   saveSidebarTab,
   type SidebarTab,
 } from "@/lib/sidebar-prefs";
@@ -113,6 +114,7 @@ import {
   RefreshIcon,
   RestoreIcon,
   SearchIcon,
+  SortIcon,
   TerminalIcon,
   TrashIcon,
   UploadIcon,
@@ -295,7 +297,8 @@ type SidebarMenuState =
   | { kind: "row"; row: SessionRow; anchor: SidebarMenuAnchor; opener: HTMLElement | null }
   | { kind: "group"; project: SidebarProject; olderCount: number; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
   | { kind: "archive-group"; project: SidebarProject; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: boolean }
-  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope };
+  | { kind: "archive"; anchor: SidebarMenuAnchor; opener: HTMLElement; askDelete?: ArchiveDeleteScope }
+  | { kind: "order"; anchor: SidebarMenuAnchor; opener: HTMLElement };
 
 /** The archive bar's deletes: every archived session, or those archived over 30 days ago. */
 type ArchiveDeleteScope = "all" | "old";
@@ -585,10 +588,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [keptOpenGroups, setKeptOpenGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [moreShown, setMoreShown] = useState<Readonly<Record<string, number>>>({});
   const [pinnedCollapsed, setPinnedCollapsed] = useState(false);
-  // Groups by their newest session instead of the stored order, per browser
-  // (lib/sidebar-prefs.ts). On, no group is placed by hand: dragging and
-  // Move up/down are off and the stored order is left alone.
-  const [sortProjectsByActivity, setSortProjectsByActivity] = useState(false);
+  // How the tree is ordered, per browser (lib/sidebar-prefs.ts): the stored
+  // project order, the groups by their newest session, or one flat list of
+  // every session. Under the last two no group is placed by hand: dragging
+  // and Move up/down are off and the stored order is left alone.
+  const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>("manual");
   // The archive view's folded projects, per browser (lib/sidebar-prefs.ts).
   const [archiveCollapsed, setArchiveCollapsed] = useState<readonly string[]>([]);
   const [archiveView, setArchiveViewState] = useState(false);
@@ -743,7 +747,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     const groups = loadGroupExpansion();
     if (Object.keys(groups).length > 0) setGroupExpansion(groups);
     if (loadPinnedCollapsed()) setPinnedCollapsed(true);
-    if (loadProjectSortByActivity()) setSortProjectsByActivity(true);
+    const order = loadSidebarOrder();
+    if (order !== "manual") setSidebarOrder(order);
     const archiveFolds = loadArchiveCollapsed();
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
@@ -1434,8 +1439,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     groupExpansion: shownGroupExpansion,
     moreShown,
     pinnedCollapsed,
-    sortProjectsByActivity,
-  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, sortProjectsByActivity]);
+    order: sidebarOrder,
+  }), [allSessions, uiState, runningSessionIds, awaitingInputSessionIds, unreadSessionIds, selectedSessionId, currentProject, shownGroupExpansion, moreShown, pinnedCollapsed, sidebarOrder]);
   // Built while the archive view is rendered, its way out included: it
   // leaves as it was, not empty.
   const archiveMounted = archiveMotion.archiveMounted;
@@ -1555,7 +1560,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // the open archive view), else the selected tab.
   const familyRowButton = useCallback((rootId: string): HTMLElement | null => {
     const panel = sessionsPanelRef.current;
-    for (const context of ["pinned", "group", "archive"]) {
+    for (const context of ["pinned", "group", "flat", "archive"]) {
       const key = CSS.escape(`session:${context}:${rootId}`);
       const button = panel?.querySelector<HTMLElement>(`[data-row-key="${key}"] .session-tree-main`);
       if (button && button.getClientRects().length > 0) return button;
@@ -2260,11 +2265,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     setMoreShown((prev) => showLessFamilies(prev, key));
   }, []);
 
-  const handleToggleSortByActivity = () => {
-    const next = !sortProjectsByActivity;
-    setSortProjectsByActivity(next);
-    saveProjectSortByActivity(next);
+  // The tree's order: one choice of three, saved per browser. The flat list
+  // has no groups to fold, so the windows "show more" opened go with it.
+  const chooseOrder = (order: SidebarOrder) => {
+    setSidebarOrder(order);
+    saveSidebarOrder(order);
+    setMenu(null);
+    if (order === "sessions") setMoreShown({});
   };
+
+  const openOrderMenu = useCallback((opener: HTMLElement) => {
+    setMenu((current) => (current?.kind === "order" ? null : { kind: "order", anchor: buttonAnchor(opener, "end"), opener }));
+  }, []);
 
   const handleTogglePinned = () => {
     const next = !pinnedCollapsed;
@@ -2332,6 +2344,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     };
   });
 
+  // How the tree is ordered: three choices, one checked. In the toolbar
+  // above the tree, not in a project's menu, where sorting would read as
+  // sorting that project's own sessions.
+  const orderMenuItems = (): SidebarMenuItem[] => ([
+    ["manual", "sidebar.orderManual"],
+    ["projects", "sidebar.orderProjectsByActivity"],
+    ["sessions", "sidebar.orderSessionsByActivity"],
+  ] as const).map(([order, key]): SidebarMenuItem => ({
+    type: "item",
+    id: `order-${order}`,
+    label: t(key),
+    checked: sidebarOrder === order,
+    onSelect: () => chooseOrder(order),
+  }));
+
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;
     const deletable = familiesToDelete(treeSelectionInput, project.key);
@@ -2378,20 +2405,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         onSelect: () => openProjectInNewTab(project),
       },
       { type: "separator", id: "separator-layout" },
-      {
-        type: "item",
-        id: "sort-by-activity",
-        label: t("sidebar.sortProjectsByActivity"),
-        checked: sortProjectsByActivity,
-        onSelect: handleToggleSortByActivity,
-      },
-      // By activity the projects place themselves: a move would not hold.
+      // Ordered by activity the projects place themselves: a move would not hold.
       {
         type: "item",
         id: "move-up",
         label: t("sidebar.moveProjectUp"),
         icon: <ChevronIcon className="sidebar-icon-up" />,
-        disabled: sortProjectsByActivity || up === null,
+        disabled: sidebarOrder !== "manual" || up === null,
         onSelect: () => { if (up) moveProject(project.key, up.anchorKey, up.position); },
       },
       {
@@ -2399,7 +2419,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         id: "move-down",
         label: t("sidebar.moveProjectDown"),
         icon: <ChevronIcon className="sidebar-icon-down" />,
-        disabled: sortProjectsByActivity || down === null,
+        disabled: sidebarOrder !== "manual" || down === null,
         onSelect: () => { if (down) moveProject(project.key, down.anchorKey, down.position); },
       },
       {
@@ -2612,6 +2632,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     menuItems = archiveGroupMenuItems(project);
     if (menu.askDelete) menuBody = archiveDeleteBody({ projectKey: project.key }, project);
     menuWidth = 248;
+  } else if (menu?.kind === "order") {
+    menuTitle = t("sidebar.sortSessions");
+    menuLabel = t("sidebar.sortSessions");
+    menuItems = orderMenuItems();
+    menuWidth = 248;
   } else if (menu?.kind === "archive") {
     menuTitle = t("sidebar.archived");
     menuLabel = t("sidebar.archiveActions");
@@ -2664,8 +2689,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onOpenOtherProject: handleOpenOtherProject,
     onOpenArchive: () => openArchiveView(),
     // The archive view has no group rows: only the main tree's can be dragged.
-    // Sorted by activity, none of them can: the order is not the user's to set.
-    onMoveGroup: sortProjectsByActivity ? undefined : moveProject,
+    // Ordered by activity, none of them can: the order is not the user's to set.
+    onMoveGroup: sidebarOrder === "manual" ? moveProject : undefined,
   } as const;
 
   const explorerCwd = selectedCwd ?? selectedCwdProp ?? null;
@@ -2879,6 +2904,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <PlusIcon size={12} />
           <span className="sidebar-new-label">{t("sidebar.new")}</span>
         </button>
+        {/* How the sessions are ordered. Beside their search, since it acts
+            on the whole tree; hidden while the files tab is in view, which
+            has no tree to order. */}
+        {sessionsShown && !archiveView && (
+          <button
+            type="button"
+            onClick={(event) => openOrderMenu(event.currentTarget)}
+            title={t("sidebar.sortSessions")}
+            aria-label={t("sidebar.sortSessions")}
+            aria-haspopup="menu"
+            aria-expanded={menu?.kind === "order"}
+            className={`sidebar-search-toggle${menu?.kind === "order" ? " is-active" : ""}`}
+          >
+            <SortIcon size={16} />
+          </button>
+        )}
         <button
           ref={searchButtonRef}
           type="button"

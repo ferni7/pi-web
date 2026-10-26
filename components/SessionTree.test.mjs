@@ -11,7 +11,7 @@ const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { SessionTree, sessionRowTitle } = await jiti.import("./SessionTree.tsx");
-const { buildSessionTree, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
+const { buildSessionTree, SIDEBAR_FLAT_SESSION_HEIGHTS, SIDEBAR_ROW_HEIGHTS } = await jiti.import("@/lib/session-tree.ts");
 const source = await readFile(new URL("./SessionTree.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/sidebar.css", import.meta.url), "utf8");
 
@@ -298,6 +298,21 @@ test("pinned rows name their project and archived rows offer restore with the ar
   assert.match(archived, /<span class="session-tree-meta">2h<\/span>/);
   assert.match(archived, /aria-label="Restore" title="Restore"/);
   assert.doesNotMatch(archived, /aria-label="Archive"/);
+});
+
+test("a flat list's row carries its project under the title, on a taller row", () => {
+  const html = render({ rows: [sessionRow(session("f"), { context: "flat" })] });
+  const row = rowMarkup(html, "session:flat:f");
+  assert.match(row, /class="session-tree-row session-tree-session is-flat"/);
+  assert.match(row, new RegExp(`style="top:0;height:${SIDEBAR_FLAT_SESSION_HEIGHTS.desktop}px"`));
+  // Title, time, then the project below both.
+  assert.match(row, /<span class="session-tree-lines"><span class="session-tree-line"><span class="session-tree-title">first f<\/span><span class="session-tree-meta">5m<\/span><\/span><span class="session-tree-subtitle" title="\/work\/app">app<\/span><\/span>/);
+  // The row still acts like any other: a link, the quick archive, the menu.
+  assert.match(row, /aria-label="Archive"/);
+  assert.match(row, /aria-label="More actions"/);
+  // The project line is dim and cut, and the two lines stack.
+  assert.match(cssRule(".session-tree-subtitle"), /text-overflow: ellipsis/);
+  assert.match(cssRule(".session-tree-lines"), /flex-direction: column/);
 });
 
 test("the phone layout uses tall rows, keeps ⋯ and drops the archive quick button", () => {
